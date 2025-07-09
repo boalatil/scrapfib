@@ -1,0 +1,127 @@
+#Web Scrapping metagenomics database - Info from geeksforgeeks
+
+#The requests library is used for making HTTP requests to a specific URL and
+#returns the response. Python requests provide inbuilt functionalities for
+#managing both the request and response.
+
+#For scrapping
+import requests
+import os
+import re
+#For format
+import csv
+
+#FUNCIONES #############################################################################
+
+#Llamar csv y utilizar sólo los valores antes de la primera coma.
+
+def dictcsv(file_path):
+  values=[]
+  with open(file_path, 'r') as file:
+    reader = csv.reader(file)
+    next(reader)  # Skip the header row
+    for row in reader:
+      if row: #this checks for empty rows, if its not empty, it does the following. This evades IndexError
+        filename = row[0].split(',')[0]  # Split by comma and take the first part
+        values.append(filename)
+        #values.append(row[0].split(',')[0]) ---- this doesnt evade the indexerror
+  return values
+
+#Descargar los modelos acorde a la lista que generamos del csv.
+def downxml(urls, filenames, pathf):
+  os.makedirs(pathf, exist_ok=True)
+  #Lists and counters
+  not_found_files = []
+  num_matches_list = []
+  downloaded_count = 0
+
+  html_content = requests.get(urls).text  # Get HTML content only once
+
+  for i in filenames:
+ # More specific regex pattern to match filenames within href attributes
+    pattern = re.compile(rf'<a href="(.*?{i}.*?\.xml)">')
+    matching_files = pattern.findall(html_content)
+
+     # Count and print the number of matches
+    num_matches = len(matching_files)
+    num_matches_list.append((i, num_matches)) # add the filename and its count to the list
+    print(f"Found {num_matches} matches for filename containing '{i}'")
+
+    if matching_files:
+      for matching_file in matching_files:
+        urlf = urls + matching_file
+        response = requests.get(urlf)
+        try:
+          response.raise_for_status()
+          # Create a unique filename to avoid overwriting
+          file_name = os.path.basename(matching_file) # Gets base filename from path, preventing overwriting
+          file_path = os.path.join(pathf, file_name)
+
+          counter=1
+
+          # Ensure filename uniqueness with incremental counter
+          counter = 1
+          while os.path.exists(file_path):
+            name, ext = os.path.splitext(file_name)
+            file_name = f"{name}_{counter}{ext}"
+            file_path = os.path.join(pathf, file_name)
+            counter += 1
+
+          with open(file_path, 'wb') as file:
+            file.write(response.content)
+          print(f"Downloaded: {matching_file} as {file_name}")
+
+          downloaded_count += 1
+
+        except requests.exceptions.HTTPError as err:
+          print(f"Error downloading {matching_file}: {err}")
+          not_found_files.append(matching_file)  # Add to not_found_files
+          continue  # Skip to the next file
+
+    else:
+      print(f"Filename '{i}' not found in URL.")
+      not_found_files.append(i)  # Add to not_found_files
+
+  with open("not_found_files.txt", "w") as f:
+        for file in not_found_files:
+            f.write(file + "\n")
+  with open("found_files.txt", "w") as f:
+        for filename, count in num_matches_list:
+            f.write(f"{filename}: {count}\n")
+  print(f"\nTotal files downloaded: {downloaded_count}")
+
+  #FIN FUNCIONES #############################################################################
+
+#microorganisms list
+micList=dictcsv("modelos_disponibles.csv")
+pathf="xml_files"
+url= "https://vmh.life/files/reconstructions/AGORA2/version2.01/sbml_files/individual_reconstructions/"
+filenames= micList
+
+downxml(url, filenames, pathf)
+
+!zip -r xml_files.zip xml_files
+from google.colab import files
+files.download('xml_files.zip')
+
+sum_values = 0  # Initialize sum to 0
+
+with open("found_files.txt", "r") as f:
+    for line in f:
+        try:
+            # Split the line by colon and get the second part (count)
+            count_str = line.strip().split(":")[1].strip()
+
+            # Convert the count to an integer and add to the sum
+            count = int(count_str)
+            sum_values += count
+        except (IndexError, ValueError):
+            # Handle cases where the line format is unexpected
+            print(f"Skipping line: {line.strip()}")
+
+print(sum_values)  # Print the total sum
+
+#Para eliminar una carpeta completa con sus archivos
+import shutil
+
+shutil.rmtree("xml_files")
